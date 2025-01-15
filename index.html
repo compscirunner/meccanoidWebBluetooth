@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Meccanoid Controller</title>
+    <style>
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+        .button-group { margin: 10px 0; }
+        button { margin: 5px; padding: 10px; }
+        #status { margin: 20px 0; padding: 10px; background: #eee; }
+        .color-btn { width: 50px; height: 50px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Meccanoid Web Controller</h1>
+        <div id="status">Not Connected</div>
+        
+        <div class="button-group">
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+        </div>
+
+        <h2>Eye Colors</h2>
+        <div class="button-group">
+            <button style="background: red" onclick="setEyeColor(7,0,0)">Red</button>
+            <button style="background: green" onclick="setEyeColor(0,7,0)">Green</button>
+            <button style="background: blue" onclick="setEyeColor(0,0,7)">Blue</button>
+            <button style="background: white" onclick="setEyeColor(7,7,7)">White</button>
+        </div>
+
+        <h2>Sounds</h2>
+        <div class="button-group">
+            <button onclick="playSound(0x19)">Wake</button>
+            <button onclick="playSound(0x15)">Hi I'm Back</button>
+            <button onclick="playSound(0x16)">Record Mode</button>
+            <button onclick="playSound(0x1c)">Exit Sound</button>
+        </div>
+
+        <h2>Servos</h2>
+        <div class="button-group">
+            <button onclick="moveServo(2, 0x40)">Right Shoulder Up</button>
+            <button onclick="moveServo(2, 0x80)">Right Shoulder Center</button>
+            <button onclick="moveServo(1, 0x40)">Right Elbow Up</button>
+            <button onclick="moveServo(1, 0x80)">Right Elbow Center</button>
+        </div>
+    </div>
+
+    <script>
+        let device = null;
+        let characteristic = null;
+        const COMMAND_SERVICE = "0000ffe5-0000-1000-8000-00805f9b34fb";
+        const COMMAND_CHAR = "0000ffe9-0000-1000-8000-00805f9b34fb";
+
+        function updateStatus(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        async function connect() {
+            try {
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'MECCANOID D1EDEF' }],
+                    optionalServices: [COMMAND_SERVICE]
+                });
+
+                updateStatus('Connecting...');
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(COMMAND_SERVICE);
+                characteristic = await service.getCharacteristic(COMMAND_CHAR);
+                
+                // Send wake command
+                await sendCommand(new Uint8Array([0x0d, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 
+                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]));
+                
+                updateStatus('Connected!');
+            } catch (error) {
+                console.error(error);
+                updateStatus('Connection failed: ' + error);
+            }
+        }
+
+        async function disconnect() {
+            if (device) {
+                await device.gatt.disconnect();
+                device = null;
+                characteristic = null;
+                updateStatus('Disconnected');
+            }
+        }
+
+        function calculateChecksum(data) {
+            const sum = data.reduce((a, b) => a + b, 0);
+            return [sum >> 8, sum & 0xFF];
+        }
+
+        async function sendCommand(data) {
+            if (!characteristic) {
+                updateStatus('Not connected!');
+                return;
+            }
+            
+            const checksum = calculateChecksum(data);
+            const fullCommand = new Uint8Array([...data, ...checksum]);
+            await characteristic.writeValue(fullCommand);
+        }
+
+        async function setEyeColor(r, g, b) {
+            const command = new Uint8Array([
+                0x11, 0x00, 0x00,
+                (g << 3) | r,
+                b,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+            ]);
+            await sendCommand(command);
+        }
+
+        async function playSound(cmdType) {
+            let data;
+            if (cmdType === 0x19) {
+                // Wake sound
+                data = new Uint8Array([0x19, ...Array(17).fill(0x1d)]);
+            } else {
+                // Other sounds
+                data = new Uint8Array([cmdType, 0x01, ...Array(16).fill(0x00)]);
+            }
+            await sendCommand(data);
+        }
+
+        async function moveServo(servoNum, position) {
+            const command = new Uint8Array([
+                0x08, 0x7f, 0x80, 0x00, 0xff, 0x80, 0x7f, 0x7f, 0x7f,
+                0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01
+            ]);
+            command[servoNum + 1] = position;
+            await sendCommand(command);
+        }
+    </script>
+</body>
+</html>
