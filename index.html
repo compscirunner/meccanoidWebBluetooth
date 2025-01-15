@@ -57,8 +57,10 @@
 
         async function connect() {
             try {
-                device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'MECCANOID D1EDEF' }],
+                    device = await navigator.bluetooth.requestDevice({
+                    filters: [{ 
+                        namePrefix: 'MECCANOID' 
+                    }],
                     optionalServices: [COMMAND_SERVICE]
                 });
 
